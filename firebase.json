@@ -1,0 +1,24 @@
+{
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "tally-app-saviour",
+          "appId": "1:1012992405186:android:6630c43d5f09022e06955b",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/core/firebase/firebase_options.dart": {
+          "projectId": "tally-app-saviour",
+          "configurations": {
+            "android": "1:1012992405186:android:6630c43d5f09022e06955b"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "1012992405186",
+    "project_id": "tally-app-saviour",
+    "storage_bucket": "tally-app-saviour.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1012992405186:android:6630c43d5f09022e06955b",
+        "android_client_info": {
+          "package_name": "com.tally.tally"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1012992405186-rme77746cie39tg0v7qoc7g6rcdabnio.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.tally.tally",
+            "certificate_hash": "f28e037f915f7e4f85ea80c344140101b36f27f0"
+          }
+        },
+        {
+          "client_id": "1012992405186-l6s96t49qob2dtgv227p7okqeu9nktme.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAxiHwiA_vdLAfnR2v1c3d6J7Vtmb0akis"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1012992405186-l6s96t49qob2dtgv227p7okqeu9nktme.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
