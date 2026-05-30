@@ -5,10 +5,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:screenshot/screenshot.dart';
 
 import '../../core/providers.dart';
+import '../../data/models/entry.dart';
+import '../../data/models/user_settings.dart';
 import '../../theme/tally_typography.dart';
 import '../../widgets/honey_button.dart';
 import 'company_invoice.dart';
 import 'export_service.dart';
+import 'invoice_statement_scope.dart';
 import 'invoice_widget.dart';
 
 class ExportScreen extends ConsumerStatefulWidget {
@@ -21,6 +24,7 @@ class ExportScreen extends ConsumerStatefulWidget {
 class _ExportScreenState extends ConsumerState<ExportScreen> {
   final _screenshotCtrl = ScreenshotController();
   bool _busy = false;
+  bool _savingInvoiceSent = false;
 
   static const monthLabels = [
     'January',
@@ -37,12 +41,28 @@ class _ExportScreenState extends ConsumerState<ExportScreen> {
     'December',
   ];
 
-  InvoiceData _buildData() {
-    final settings = ref.read(settingsProvider);
-    final month = ref.read(selectedMonthProvider);
-    final entries = ref.read(monthEntriesProvider).value ?? const [];
+  List<Entry> _buildStatementEntries({
+    required DateTime month,
+    required UserSettings settings,
+    required List<Entry> monthEntries,
+    required List<Entry> previousMonthEntries,
+  }) {
+    return buildInvoiceStatementEntries(
+      month: month,
+      monthEntries: monthEntries,
+      previousMonthEntries: previousMonthEntries,
+      invoiceCarryForwardStartByMonth:
+          settings.invoiceCarryForwardStartByMonth,
+    );
+  }
+
+  InvoiceData _buildData({
+    required UserSettings settings,
+    required DateTime month,
+    required List<Entry> entries,
+    required String? displayName,
+  }) {
     final extras = ref.read(monthExtrasProvider).value ?? const [];
-    final user = ref.read(authStateProvider).value;
     return InvoiceData(
       monthLabel: monthLabels[month.month - 1],
       year: month.year,
@@ -50,7 +70,7 @@ class _ExportScreenState extends ConsumerState<ExportScreen> {
       extras: extras,
       hourlyFullDayPay: settings.hourlyFullDayPay,
       fullDayHours: settings.fullDayHours,
-      displayName: user?.displayName,
+      displayName: displayName,
     );
   }
 
@@ -69,7 +89,29 @@ class _ExportScreenState extends ConsumerState<ExportScreen> {
   Future<void> _sharePdf() async {
     setState(() => _busy = true);
     try {
-      final bytes = await ExportService.buildPdf(_buildData());
+      final settings = ref.read(settingsProvider);
+      final month = ref.read(selectedMonthProvider);
+      final previousMonth = DateTime(month.year, month.month - 1, 1);
+      final monthEntries =
+          await ref.read(monthEntriesByDateProvider(month).future);
+      final previousMonthEntries = await ref.read(
+        monthEntriesByDateProvider(previousMonth).future,
+      );
+      final statementEntries = _buildStatementEntries(
+        month: month,
+        settings: settings,
+        monthEntries: monthEntries,
+        previousMonthEntries: previousMonthEntries,
+      );
+      final user = ref.read(authStateProvider).value;
+      final bytes = await ExportService.buildPdf(
+        _buildData(
+          settings: settings,
+          month: month,
+          entries: statementEntries,
+          displayName: user?.displayName,
+        ),
+      );
       await ExportService.sharePdf(
         Uint8List.fromList(bytes),
         filename: _filename('pdf'),
@@ -107,7 +149,18 @@ class _ExportScreenState extends ConsumerState<ExportScreen> {
         nextSequence,
       );
       final month = ref.read(selectedMonthProvider);
-      final entries = ref.read(monthEntriesProvider).value ?? const [];
+      final previousMonth = DateTime(month.year, month.month - 1, 1);
+      final monthEntries =
+          await ref.read(monthEntriesByDateProvider(month).future);
+      final previousMonthEntries = await ref.read(
+        monthEntriesByDateProvider(previousMonth).future,
+      );
+      final entries = _buildStatementEntries(
+        month: month,
+        settings: settings,
+        monthEntries: monthEntries,
+        previousMonthEntries: previousMonthEntries,
+      );
       final extras = ref.read(monthExtrasProvider).value ?? const [];
       final data = CompanyInvoiceData.fromMonthlyStatement(
         invoiceDate: invoiceDate,
@@ -147,6 +200,68 @@ class _ExportScreenState extends ConsumerState<ExportScreen> {
     }
   }
 
+  Future<void> _markInvoiceSentForMonth() async {
+    final uid = ref.read(currentUidProvider);
+    if (uid == null) return;
+
+    final now = DateTime.now();
+    final currentMonth = DateTime(now.year, now.month, 1);
+    final selectedMonth = ref.read(selectedMonthProvider);
+    final normalizedSelectedMonth = DateTime(
+      selectedMonth.year,
+      selectedMonth.month,
+      1,
+    );
+    if (normalizedSelectedMonth != currentMonth) return;
+
+    setState(() => _savingInvoiceSent = true);
+    try {
+      final repo = ref.read(settingsRepoProvider);
+      final latest = await repo.read(uid);
+      final monthKey = invoiceStatementMonthKey(normalizedSelectedMonth);
+      if (latest.invoiceCarryForwardStartByMonth.containsKey(monthKey)) {
+        return;
+      }
+
+      final todayEntry = await ref.read(entryRepoProvider).readDay(uid, now);
+      final carryForwardStart = invoiceCarryForwardStartForSentMonth(
+        answeredAt: now,
+        hasLoggedForAnsweredDay: (todayEntry?.totalMinutes ?? 0) > 0,
+      );
+      final updatedCarryForwardStarts = Map<String, String>.from(
+        latest.invoiceCarryForwardStartByMonth,
+      );
+      updatedCarryForwardStarts[monthKey] =
+          carryForwardStart.toIso8601String();
+      await repo.write(
+        uid,
+        latest.copyWith(
+          invoiceCarryForwardStartByMonth: updatedCarryForwardStarts,
+        ),
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Invoice marked as sent. Remaining days will roll into next month.',
+            ),
+          ),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not save invoice sent status. Please try again.'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _savingInvoiceSent = false);
+    }
+  }
+
   String _filename(String ext) {
     final m = ref.read(selectedMonthProvider);
     return 'tally-${m.year}-${m.month.toString().padLeft(2, '0')}.$ext';
@@ -158,10 +273,37 @@ class _ExportScreenState extends ConsumerState<ExportScreen> {
   @override
   Widget build(BuildContext context) {
     final ink = Theme.of(context).colorScheme.onSurface;
-    final data = _buildData();
+    final month = ref.watch(selectedMonthProvider);
     final settings = ref.watch(settingsProvider);
+    final monthEntries = ref.watch(monthEntriesByDateProvider(month)).value ??
+        const <Entry>[];
+    final previousMonth = DateTime(month.year, month.month - 1, 1);
+    final previousMonthEntries =
+        ref.watch(monthEntriesByDateProvider(previousMonth)).value ??
+            const <Entry>[];
+    final statementEntries = _buildStatementEntries(
+      month: month,
+      settings: settings,
+      monthEntries: monthEntries,
+      previousMonthEntries: previousMonthEntries,
+    );
+    final data = _buildData(
+      settings: settings,
+      month: month,
+      entries: statementEntries,
+      displayName: ref.watch(authStateProvider).value?.displayName,
+    );
     final missing = CompanyInvoiceData.missingRequiredFields(settings);
     final companyInvoiceReady = missing.isEmpty;
+    final now = DateTime.now();
+    final currentMonth = DateTime(now.year, now.month, 1);
+    final normalizedSelectedMonth = DateTime(month.year, month.month, 1);
+    final monthKey = invoiceStatementMonthKey(normalizedSelectedMonth);
+    final invoiceMarkedSent =
+        settings.invoiceCarryForwardStartByMonth.containsKey(monthKey);
+    final showInvoiceSentPrompt =
+        normalizedSelectedMonth == currentMonth &&
+        !invoiceMarkedSent;
     return Scaffold(
       appBar: AppBar(title: Text('Export', style: TallyType.title(ink))),
       body: ListView(
@@ -195,6 +337,63 @@ class _ExportScreenState extends ConsumerState<ExportScreen> {
             ),
           ),
           const SizedBox(height: 24),
+          if (invoiceMarkedSent) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .primary
+                      .withValues(alpha: 0.22),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.check_circle_rounded,
+                    size: 18,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Invoice sent for ${monthLabels[month.month - 1]} ${month.year}. Remaining entries roll into the next month.',
+                      style: TallyType.body(
+                        ink.withValues(alpha: 0.82),
+                        size: 13,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+          ],
+          if (showInvoiceSentPrompt) ...[
+            Text(
+              'INVOICE SENT FOR THE MONTH',
+              style: TallyType.label(ink.withValues(alpha: 0.55), size: 11),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Mark this once the month is invoiced. Any remaining days from today onward move into next month. If today is not logged yet, today moves too.',
+              style: TallyType.body(ink.withValues(alpha: 0.7), size: 13),
+            ),
+            const SizedBox(height: 12),
+            HoneyButton(
+              label: _savingInvoiceSent ? 'Saving...' : 'Yes, invoice sent',
+              icon: Icons.check_circle_rounded,
+              expanded: true,
+              onPressed: _busy || _savingInvoiceSent
+                  ? null
+                  : _markInvoiceSentForMonth,
+            ),
+            const SizedBox(height: 22),
+          ],
           Row(
             children: [
               Expanded(
@@ -226,6 +425,13 @@ class _ExportScreenState extends ConsumerState<ExportScreen> {
             'Uses the Cozm invoice layout, your Settings details, today\'s invoice date, and an auto-incremented monthly invoice number.',
             style: TallyType.body(ink.withValues(alpha: 0.7), size: 13),
           ),
+          if (invoiceMarkedSent) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Company invoice generation is disabled for this month because it has already been marked as sent.',
+              style: TallyType.body(ink.withValues(alpha: 0.65), size: 12),
+            ),
+          ],
           if (!companyInvoiceReady) ...[
             const SizedBox(height: 8),
             Text(
@@ -238,7 +444,7 @@ class _ExportScreenState extends ConsumerState<ExportScreen> {
             label: _busy ? 'Preparing...' : 'Generate company invoice',
             icon: Icons.business_center_rounded,
             expanded: true,
-            onPressed: _busy || !companyInvoiceReady
+            onPressed: _busy || !companyInvoiceReady || invoiceMarkedSent
                 ? null
                 : _shareCompanyInvoice,
           ),

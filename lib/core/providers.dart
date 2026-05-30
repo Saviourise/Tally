@@ -66,9 +66,21 @@ final selectedMonthProvider =
 
 // --- Entries -------------------------------------------------------------
 
-final monthEntriesProvider = StreamProvider<List<Entry>>((ref) {
+final monthEntriesByDateProvider = StreamProvider.family<List<Entry>, DateTime>((
+  ref,
+  month,
+) {
   final uid = ref.watch(currentUidProvider);
+  if (uid == null) return Stream.value(const []);
+  final normalizedMonth = DateTime(month.year, month.month, 1);
+  return ref.watch(
+    entryRepoProvider,
+  ).watchMonth(uid, normalizedMonth.year, normalizedMonth.month);
+});
+
+final monthEntriesProvider = StreamProvider<List<Entry>>((ref) {
   final month = ref.watch(selectedMonthProvider);
+  final uid = ref.watch(currentUidProvider);
   if (uid == null) return Stream.value(const []);
   return ref.watch(entryRepoProvider).watchMonth(uid, month.year, month.month);
 });

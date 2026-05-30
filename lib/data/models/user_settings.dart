@@ -22,6 +22,7 @@ class UserSettings {
   final String paymentBankName;
   final String paymentBankAddress;
   final Map<String, int> invoiceSequenceByMonth;
+  final Map<String, String> invoiceCarryForwardStartByMonth;
   final ThemeMode themeMode;
   final bool reminderEnabled;
   final String reminderTime; // "HH:mm" 24h
@@ -48,6 +49,7 @@ class UserSettings {
     this.paymentBankName = '',
     this.paymentBankAddress = '',
     this.invoiceSequenceByMonth = const {},
+    this.invoiceCarryForwardStartByMonth = const {},
     this.themeMode = ThemeMode.system,
     this.reminderEnabled = true,
     this.reminderTime = '22:00',
@@ -75,6 +77,7 @@ class UserSettings {
     String? paymentBankName,
     String? paymentBankAddress,
     Map<String, int>? invoiceSequenceByMonth,
+    Map<String, String>? invoiceCarryForwardStartByMonth,
     ThemeMode? themeMode,
     bool? reminderEnabled,
     String? reminderTime,
@@ -104,6 +107,9 @@ class UserSettings {
     paymentBankAddress: paymentBankAddress ?? this.paymentBankAddress,
     invoiceSequenceByMonth:
         invoiceSequenceByMonth ?? this.invoiceSequenceByMonth,
+    invoiceCarryForwardStartByMonth:
+        invoiceCarryForwardStartByMonth ??
+        this.invoiceCarryForwardStartByMonth,
     themeMode: themeMode ?? this.themeMode,
     reminderEnabled: reminderEnabled ?? this.reminderEnabled,
     reminderTime: reminderTime ?? this.reminderTime,
@@ -135,6 +141,9 @@ class UserSettings {
       paymentBankName: (d['paymentBankName'] as String?) ?? '',
       paymentBankAddress: (d['paymentBankAddress'] as String?) ?? '',
       invoiceSequenceByMonth: _invoiceSequenceMap(d['invoiceSequenceByMonth']),
+      invoiceCarryForwardStartByMonth: _stringMap(
+        d['invoiceCarryForwardStartByMonth'],
+      ),
       themeMode: _modeFromString(d['themeMode'] as String?),
       reminderEnabled: (d['reminderEnabled'] as bool?) ?? true,
       reminderTime: (d['reminderTime'] as String?) ?? '22:00',
@@ -163,6 +172,7 @@ class UserSettings {
     'paymentBankName': paymentBankName,
     'paymentBankAddress': paymentBankAddress,
     'invoiceSequenceByMonth': invoiceSequenceByMonth,
+    'invoiceCarryForwardStartByMonth': invoiceCarryForwardStartByMonth,
     'themeMode': _modeToString(themeMode),
     'reminderEnabled': reminderEnabled,
     'reminderTime': reminderTime,
@@ -178,6 +188,20 @@ class UserSettings {
       final amount = (entry.value as num?)?.toInt();
       if (key == null || key.isEmpty || amount == null) continue;
       map[key] = amount;
+    }
+    return map;
+  }
+
+  static Map<String, String> _stringMap(dynamic value) {
+    if (value is! Map) return const {};
+    final map = <String, String>{};
+    for (final entry in value.entries) {
+      final key = entry.key?.toString();
+      final text = entry.value?.toString();
+      if (key == null || key.isEmpty || text == null || text.isEmpty) {
+        continue;
+      }
+      map[key] = text;
     }
     return map;
   }
