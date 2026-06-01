@@ -8,6 +8,7 @@ import '../../theme/tally_typography.dart';
 import '../../widgets/tally_logo.dart';
 import '../analytics/analytics_logic.dart';
 import '../entry/log_entry_sheet.dart';
+import '../history/widgets/month_switcher.dart';
 import 'widgets/forecast_card.dart';
 import 'widgets/hero_card.dart';
 import 'widgets/insights_ribbon.dart';
@@ -76,7 +77,16 @@ class HomeScreen extends ConsumerWidget {
             TallyLogo(size: 26, color: ink),
           ],
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 14),
+        MonthSwitcher(
+          month: selectedMonth,
+          label: monthLabel,
+          onPrev: () => ref.read(selectedMonthProvider.notifier).state =
+              DateTime(selectedMonth.year, selectedMonth.month - 1, 1),
+          onNext: () => ref.read(selectedMonthProvider.notifier).state =
+              DateTime(selectedMonth.year, selectedMonth.month + 1, 1),
+        ),
+        const SizedBox(height: 16),
         HeroCard(
           monthLabel: monthLabel,
           earned: monthTotal,
