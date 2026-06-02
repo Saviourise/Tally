@@ -3,11 +3,11 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
+import '../../theme/tally_colors.dart';
+
 /// Payloads that the notification callback emits. The app listens for these
 /// via [onActionPayload] and reacts (e.g. shows a confirmation dialog).
 class NotifPayload {
-  static const timerPause = 'timer.pause';
-  static const timerResume = 'timer.resume';
   static const timerStop = 'timer.stop';
   static const timerOpen = 'timer.open';
 }
@@ -185,43 +185,33 @@ class ReminderService {
   // ---- live timer ongoing notification ----
 
   /// Show or update the ongoing timer notification.
+  ///
+  /// While running, we hand the counting to Android's native chronometer:
+  /// [usesChronometer] + a [when] base equal to the wall-clock instant the
+  /// timer effectively started from (now minus [elapsed]). Android then ticks
+  /// the seconds live in the notification on its own, so it stays in real time
+  /// even when the app is backgrounded or the timer screen is unmounted. When
+  /// paused we turn the chronometer off and show the frozen banked time.
   Future<void> showTimer({
     required Duration elapsed,
     required bool isRunning,
   }) async {
     await init();
+    final chronometerBase = DateTime.now().subtract(elapsed);
     final body = isRunning
-        ? 'Working · ${_format(elapsed)}'
+        ? 'Working'
         : 'Paused · ${_format(elapsed)}';
-    final actions = isRunning
-        ? const [
-            AndroidNotificationAction(
-              NotifPayload.timerPause,
-              'Pause',
-              cancelNotification: false,
-              showsUserInterface: false,
-            ),
-            AndroidNotificationAction(
-              NotifPayload.timerStop,
-              'Stop',
-              cancelNotification: false,
-              showsUserInterface: true,
-            ),
-          ]
-        : const [
-            AndroidNotificationAction(
-              NotifPayload.timerResume,
-              'Resume',
-              cancelNotification: false,
-              showsUserInterface: false,
-            ),
-            AndroidNotificationAction(
-              NotifPayload.timerStop,
-              'Stop',
-              cancelNotification: false,
-              showsUserInterface: true,
-            ),
-          ];
+    // Only a Stop action — pause/resume are driven from the app's ring. The
+    // label is tinted with our honey accent to match the Tally theme.
+    const actions = [
+      AndroidNotificationAction(
+        NotifPayload.timerStop,
+        'Stop',
+        cancelNotification: false,
+        showsUserInterface: true,
+        titleColor: TallyColors.honeyDeep,
+      ),
+    ];
     final details = NotificationDetails(
       android: AndroidNotificationDetails(
         _timerChannelId,
@@ -232,10 +222,13 @@ class ReminderService {
         onlyAlertOnce: true,
         importance: Importance.low,
         priority: Priority.low,
-        showWhen: false,
+        showWhen: isRunning,
+        when: isRunning ? chronometerBase.millisecondsSinceEpoch : null,
+        usesChronometer: isRunning,
         category: AndroidNotificationCategory.stopwatch,
+        // Honey accent for the app-name/icon tint to match the brand.
+        color: TallyColors.honey,
         actions: actions,
-        usesChronometer: false,
       ),
       iOS: const DarwinNotificationDetails(presentAlert: false),
     );

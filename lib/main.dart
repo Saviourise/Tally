@@ -19,6 +19,8 @@ Future<void> main() async {
 
   final container = ProviderContainer();
   ReminderService.instance.onActionPayload = (payload) {
+    // The only notification action is Stop, which needs the "Log this time?"
+    // dialog — route it to the timer screen via the pending-action provider.
     container.read(pendingActionProvider.notifier).set(payload);
   };
 

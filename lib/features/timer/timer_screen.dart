@@ -25,24 +25,17 @@ class _TimerScreenState extends ConsumerState<TimerScreen> {
   Timer? _tick;
   Duration _elapsed = Duration.zero;
   TimerState _state = const TimerState(isRunning: false);
-  int _lastNotifSecond = -30;
 
   @override
   void initState() {
     super.initState();
+    // Drives the in-app display only. The ongoing notification counts itself
+    // in real time via the native Android chronometer (see ReminderService),
+    // so it stays accurate even while this screen is unmounted/backgrounded.
     _tick = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       final newElapsed = Duration(seconds: _state.totalSeconds);
       if (newElapsed != _elapsed) setState(() => _elapsed = newElapsed);
-      // Update notification every 30s while running (battery-friendly).
-      if (_state.isRunning &&
-          newElapsed.inSeconds - _lastNotifSecond >= 30) {
-        _lastNotifSecond = newElapsed.inSeconds;
-        ReminderService.instance.showTimer(
-          elapsed: newElapsed,
-          isRunning: true,
-        );
-      }
     });
   }
 
@@ -60,7 +53,6 @@ class _TimerScreenState extends ConsumerState<TimerScreen> {
       elapsed: Duration.zero,
       isRunning: true,
     );
-    _lastNotifSecond = 0;
   }
 
   Future<void> _pause() async {
@@ -82,7 +74,6 @@ class _TimerScreenState extends ConsumerState<TimerScreen> {
       elapsed: Duration(seconds: _state.totalSeconds),
       isRunning: true,
     );
-    _lastNotifSecond = _state.totalSeconds;
   }
 
   Future<void> _stopAndPrompt() async {
@@ -178,17 +169,13 @@ class _TimerScreenState extends ConsumerState<TimerScreen> {
     _state = asyncState.value ?? const TimerState(isRunning: false);
     _elapsed = Duration(seconds: _state.totalSeconds);
 
-    // React to notification action payloads.
+    // React to notification action payloads that need the UI. Pause/resume are
+    // handled globally in main.dart (they don't need a screen); Stop needs the
+    // "Log this time?" dialog, so it's handled here.
     ref.listen<String?>(pendingActionProvider, (prev, next) {
       if (next == null) return;
       ref.read(pendingActionProvider.notifier).set(null);
       switch (next) {
-        case NotifPayload.timerPause:
-          _pause();
-          break;
-        case NotifPayload.timerResume:
-          _resume();
-          break;
         case NotifPayload.timerStop:
           _stopAndPrompt();
           break;
@@ -203,8 +190,13 @@ class _TimerScreenState extends ConsumerState<TimerScreen> {
     final progress = (hourFraction % 12) / 12;
     final hasActive = _state.isActive;
 
+    // The pill nav (height ~68 + 18 bottom margin) floats over the body since
+    // the shell uses extendBody. Clear it plus the device safe-area inset so the
+    // controls never sit flush against the tab bar.
+    final navClearance = MediaQuery.of(context).padding.bottom + 130;
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 12, 24, 100),
+      padding: EdgeInsets.fromLTRB(24, 12, 24, navClearance),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -216,50 +208,64 @@ class _TimerScreenState extends ConsumerState<TimerScreen> {
             child: Center(
               child: AspectRatio(
                 aspectRatio: 1,
-                child: CustomPaint(
-                  painter: _RingPainter(
-                    progress: _state.isRunning ? progress : (hasActive ? progress : 0),
-                    color: TallyColors.honey,
-                    trackColor: ink.withValues(alpha: 0.08),
-                    pulse: _state.isRunning,
-                  ),
-                  child: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: _state.isRunning
-                                ? TallyColors.honey.withValues(alpha: 0.15)
-                                : ink.withValues(alpha: 0.06),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            _state.isRunning
-                                ? 'WORKING'
-                                : hasActive
-                                    ? 'PAUSED'
-                                    : 'READY',
-                            style: TallyType.label(
+                // The ring is the primary control: tap to start when idle,
+                // pause when running, resume when paused.
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {
+                    if (!hasActive) {
+                      _start();
+                    } else if (_state.isRunning) {
+                      _pause();
+                    } else {
+                      _resume();
+                    }
+                  },
+                  child: CustomPaint(
+                    painter: _RingPainter(
+                      progress: _state.isRunning ? progress : (hasActive ? progress : 0),
+                      color: TallyColors.honey,
+                      trackColor: ink.withValues(alpha: 0.08),
+                      pulse: _state.isRunning,
+                    ),
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: _state.isRunning
+                                  ? TallyColors.honey.withValues(alpha: 0.15)
+                                  : ink.withValues(alpha: 0.06),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
                               _state.isRunning
-                                  ? TallyColors.honeyDeep
-                                  : ink.withValues(alpha: 0.5),
-                              size: 11,
+                                  ? 'WORKING'
+                                  : hasActive
+                                      ? 'PAUSED'
+                                      : 'TAP TO START',
+                              style: TallyType.label(
+                                _state.isRunning
+                                    ? TallyColors.honeyDeep
+                                    : ink.withValues(alpha: 0.5),
+                                size: 11,
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          '${hours.toString().padLeft(2, '0')}:${mins.toString().padLeft(2, '0')}',
-                          style: TallyType.display(ink, size: 64),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '${secs.toString().padLeft(2, '0')}s',
-                          style: TallyType.mono(ink.withValues(alpha: 0.5), size: 18),
-                        ),
-                      ],
+                          const SizedBox(height: 12),
+                          Text(
+                            '${hours.toString().padLeft(2, '0')}:${mins.toString().padLeft(2, '0')}',
+                            style: TallyType.display(ink, size: 64),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${secs.toString().padLeft(2, '0')}s',
+                            style: TallyType.mono(ink.withValues(alpha: 0.5), size: 18),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -267,12 +273,18 @@ class _TimerScreenState extends ConsumerState<TimerScreen> {
             ),
           ),
           const SizedBox(height: 22),
-          _Controls(
-            state: _state,
-            onStart: _start,
-            onPause: _pause,
-            onResume: _resume,
-            onStop: _stopAndPrompt,
+          // Reserve the controls' height even when idle so the ring above never
+          // shifts vertically as the buttons appear/disappear.
+          SizedBox(
+            height: 56,
+            child: hasActive
+                ? _Controls(
+                    state: _state,
+                    onPause: _pause,
+                    onResume: _resume,
+                    onStop: _stopAndPrompt,
+                  )
+                : const SizedBox.shrink(),
           ),
         ],
       ),
@@ -283,28 +295,19 @@ class _TimerScreenState extends ConsumerState<TimerScreen> {
 class _Controls extends StatelessWidget {
   const _Controls({
     required this.state,
-    required this.onStart,
     required this.onPause,
     required this.onResume,
     required this.onStop,
   });
 
   final TimerState state;
-  final VoidCallback onStart;
   final VoidCallback onPause;
   final VoidCallback onResume;
   final VoidCallback onStop;
 
   @override
   Widget build(BuildContext context) {
-    if (!state.isActive) {
-      return HoneyButton(
-        label: 'Start',
-        icon: Icons.play_arrow_rounded,
-        expanded: true,
-        onPressed: onStart,
-      );
-    }
+    // Only rendered while the timer is active; idle "start" is the ring tap.
     return Row(
       children: [
         Expanded(
