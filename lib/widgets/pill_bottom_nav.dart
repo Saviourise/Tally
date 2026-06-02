@@ -27,9 +27,41 @@ class PillBottomNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final bg = dark ? TallyColors.cream : TallyColors.ink;
-    final fg = dark ? TallyColors.ink : TallyColors.cream;
-    final inactive = fg.withValues(alpha: 0.5);
+    final ink = Theme.of(context).colorScheme.onSurface;
+    final inactive = ink.withValues(alpha: 0.45);
+
+    // Glass fill, faked with a top-to-bottom sheen gradient instead of a live
+    // BackdropFilter blur. A real-time blur samples whatever is painted behind
+    // it, so during a page cross-fade it re-rendered the outgoing page as a
+    // blurred grid flash. A gradient reads as frosted glass, costs nothing, and
+    // never samples the backdrop — so screen transitions stay clean. Light mode:
+    // a near-opaque white pill brighter than the warm cream bg. Dark mode: a
+    // lifted warm surface noticeably lighter than the near-black bg.
+    final glassGradient = dark
+        ? [
+            const Color(0xFF463729).withValues(alpha: 0.94),
+            const Color(0xFF362A1F).withValues(alpha: 0.88),
+          ]
+        : [
+            Colors.white.withValues(alpha: 0.96),
+            Colors.white.withValues(alpha: 0.82),
+          ];
+    final borderColor = dark
+        ? Colors.white.withValues(alpha: 0.16)
+        : Colors.white.withValues(alpha: 0.9);
+
+    // Neumorphic dual shadows: a light highlight toward the top-left light
+    // source and a matching dark shadow to the bottom-right. Keeping them
+    // symmetric (equal, opposite offsets) and soft is what sells the "extruded
+    // from the surface" neumorphic look.
+    final highlight = dark
+        ? Colors.white.withValues(alpha: 0.10)
+        : Colors.white.withValues(alpha: 1.0);
+    final shadow = dark
+        ? Colors.black.withValues(alpha: 0.70)
+        : TallyColors.ink.withValues(alpha: 0.28);
+
+    const radius = 36.0;
 
     Widget tab(int i) {
       final item = items[i];
@@ -58,12 +90,35 @@ class PillBottomNav extends StatelessWidget {
       top: false,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 18),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(36),
-          child: Material(
-            color: bg,
-            child: SizedBox(
-              height: 68,
+        child: Container(
+          height: 68,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: glassGradient,
+            ),
+            borderRadius: BorderRadius.circular(radius),
+            border: Border.all(color: borderColor, width: 1.2),
+            boxShadow: [
+              // Dark shadow, bottom-right.
+              BoxShadow(
+                color: shadow,
+                offset: const Offset(9, 9),
+                blurRadius: 22,
+              ),
+              // Light highlight, top-left (mirrors the dark one).
+              BoxShadow(
+                color: highlight,
+                offset: const Offset(-9, -9),
+                blurRadius: 22,
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(radius),
+            child: Material(
+              color: Colors.transparent,
               child: Row(
                 children: [
                   const SizedBox(width: 12),
@@ -88,7 +143,8 @@ class PillBottomNav extends StatelessWidget {
                             ),
                           ],
                         ),
-                        child: Icon(centerIcon, color: TallyColors.ink, size: 26),
+                        child: Icon(centerIcon,
+                            color: TallyColors.ink, size: 26),
                       ),
                     ),
                   ),
